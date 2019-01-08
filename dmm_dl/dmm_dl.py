@@ -8,6 +8,7 @@ import chainer.functions as F
 import chainer.links as L
 from chainer.training import extensions
 import pandas as pd
+import random
 
 df = pd.read_csv("dmm_dl_data.csv")
 #print(df.head(5))
@@ -20,9 +21,9 @@ X = X.values.astype(np.float32)
 Y = Y.values.astype(np.float32)
 Y = np.reshape(Y,(X.shape[0],1))
 
-train,test = datasets.split_dataset_random(chainer.datasets.TupleDataset(X,Y),800)
-train_iter = chainer.iterators.SerialIterator(train, 16)
-test_iter = chainer.iterators.SerialIterator(test, 16, repeat=False, shuffle=False)
+train,test = datasets.split_dataset_random(chainer.datasets.TupleDataset(X,Y),600)
+train_iter = chainer.iterators.SerialIterator(train, 32)
+test_iter = chainer.iterators.SerialIterator(test, 32, repeat=False, shuffle=True)
 
 class DMMChain(Chain):
     def __init__(self):
@@ -43,10 +44,10 @@ model = L.Classifier(DMMChain(),lossfun=F.mean_squared_error)
 model.compute_accuracy = False
 optimizer = chainer.optimizers.Adam(alpha = 0.0001)
 optimizer.setup(model)
-optimizer.add_hook(chainer.optimizer.WeightDecay(0.0005))
+#optimizer.add_hook(chainer.optimizer.WeightDecay(0.0005))
 
 updater = training.StandardUpdater(train_iter,optimizer,device=-1)
-trainer = training.Trainer(updater,(25000,"epoch"),out="result25000")
+trainer = training.Trainer(updater,(1000,"epoch"),out="result")
 
 trainer.extend(extensions.ProgressBar())
 trainer.extend(extensions.LogReport())
@@ -57,3 +58,17 @@ trainer.extend(extensions.PlotReport(["main/loss","validation/main/loss"],x_key=
 trainer.extend(extensions.dump_graph("main/loss"))
 
 trainer.run()
+
+infer_net = DMMChain()
+serializers.load_npz(
+    'result/snapshot_epoch-500',
+    infer_net, path='updater/model:main/predictor/')
+
+for i in range(100):
+    x, t = test[i]
+
+    x = infer_net.xp.asarray(x[None, ...])
+    with chainer.using_config('train', False), chainer.using_config('enable_backprop', False):
+        y = infer_net(x)
+
+    print('予測', y[0],'正解', t)
